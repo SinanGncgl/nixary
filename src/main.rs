@@ -2,11 +2,16 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use iced::widget::{button, column, container, row, text, text_editor};
+use iced::highlighter::{self, Highlighter};
+
+use iced::widget::{
+    button, column, container, horizontal_space, pick_list, row, text, text_editor,
+};
 use iced::{executor, Application, Command, Element, Font, Settings, Theme};
 
 fn main() -> Result<(), iced::Error> {
     Editor::run(Settings {
+        default_font: Font::MONOSPACE,
         fonts: vec![include_bytes!("../fonts/nixary-icons.ttf")
             .as_slice()
             .into()],
@@ -28,10 +33,12 @@ enum Message {
     FileSaved(Result<PathBuf, Error>),
     Open,
     Save,
+    ThemeSelected(highlighter::Theme),
 }
 struct Editor {
     path: Option<PathBuf>,
     content: text_editor::Content,
+    theme: highlighter::Theme,
     error: Option<Error>,
 }
 
@@ -46,6 +53,7 @@ impl Application for Editor {
             Self {
                 path: None,
                 content: text_editor::Content::with_text(include_str!("main.rs")),
+                theme: highlighter::Theme::SolarizedDark,
                 error: None,
             },
             Command::perform(load_file(default_file()), Message::FileOpened),
@@ -93,6 +101,10 @@ impl Application for Editor {
                 self.error = Some(error);
                 Command::none()
             }
+            Message::ThemeSelected(theme) => {
+                self.theme = theme;
+                Command::none()
+            }
         }
     }
 
@@ -101,9 +113,28 @@ impl Application for Editor {
             action(new_icon(), Message::New),
             action(open_icon(), Message::Open),
             action(save_icon(), Message::Save),
+            horizontal_space(),
+            pick_list(
+                highlighter::Theme::ALL,
+                Some(self.theme),
+                Message::ThemeSelected
+            ),
         ]
         .spacing(5);
-        let input = text_editor(&self.content).on_action(Message::Edit);
+        let input = text_editor(&self.content)
+            .on_action(Message::Edit)
+            .highlight::<Highlighter>(
+                highlighter::Settings {
+                    theme: self.theme,
+                    extension: self
+                        .path
+                        .as_ref()
+                        .and_then(|path| path.extension()?.to_str())
+                        .unwrap_or("rs")
+                        .to_string(),
+                },
+                |highlight, _theme| highlight.to_format(),
+            );
 
         let status_bar = {
             let status = if let Some(Error::IOFailed(error)) = self.error.as_ref() {
@@ -129,7 +160,11 @@ impl Application for Editor {
     }
 
     fn theme(&self) -> Theme {
-        Theme::Dracula
+        if self.theme.is_dark() {
+            Theme::Dark
+        } else {
+            Theme::Light
+        }
     }
 }
 
